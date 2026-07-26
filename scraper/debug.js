@@ -9,10 +9,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
 const BASE = "https://mrgerardgdj.github.io/InventarioMYL/";
 const H = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36" };
-const files = [
-  "js/store.js", "js/exporters.js", "js/charts.js", "js/cloud.js",
-  "js/icons.js", "js/wiki-import.js",
-];
+const files = ["js/cdn.js"];
 for (const rel of files) {
   const r = await fetch(new URL(rel, BASE).href, { headers: H });
   const t = await r.text();
