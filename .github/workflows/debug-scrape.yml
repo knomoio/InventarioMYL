@@ -1,0 +1,18 @@
+name: Diagnóstico del scraper
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Diagnóstico
+        working-directory: scraper
+        run: node debug.js
