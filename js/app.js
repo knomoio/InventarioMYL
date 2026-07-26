@@ -81,6 +81,7 @@ function numOrNull(v) {
 }
 // Combina las cartas base (catálogo + bundle) con las cartas manuales del usuario
 function rebuildCards() {
+  editionCardsCache.clear();
   const userCustom = store.getCustomCards().map(normalizeCard);
   for (const c of userCustom) {
     c.editionName = c.editionName || state.editionName[c.edition] || c.edition || "—";
@@ -331,6 +332,7 @@ function changeQty(el, card, delta) {
   numEl.classList.toggle("zero", qty === 0);
   el.classList.toggle("owned", qty > 0);
   updateResultCount();
+  updateCollectionProgress();
 }
 
 /* ===================== Modal detalle ===================== */
@@ -1028,6 +1030,7 @@ function flashChip(text, cls) {
 function refreshAll() {
   rebuildCards();
   applyFilters();
+  if (state.view === "colecciones") renderCollectionsView();
   if (state.view === "mazos") renderDecksView();
   if (state.view === "stats") renderStats();
   refreshActiveDeckUI();
@@ -1216,11 +1219,170 @@ function bindSyncEvents() {
   $("#cloud-log-btn").addEventListener("click", showLog);
 }
 
+/* ===================== Colecciones (álbum por edición) =====================
+   Una colección es una VISTA de una edición sobre el inventario: no guarda
+   cantidades (esas viven en la Capa B). Muestra todas las cartas de la edición
+   y marca el avance; las que no tienes se ven en blanco y negro. */
+const editionCardsCache = new Map();
+
+function compareEditionCards(a, b) {
+  const na = Number(a.edid), nb = Number(b.edid);
+  if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+  return (a.name || "").localeCompare(b.name || "", "es");
+}
+function collectionCards(col) {
+  let arr = editionCardsCache.get(col.edition);
+  if (!arr) {
+    arr = state.cards.filter((c) => c.edition === col.edition).sort(compareEditionCards);
+    editionCardsCache.set(col.edition, arr);
+  }
+  return arr;
+}
+function collectionStats(col) {
+  const cards = collectionCards(col);
+  const owned = cards.filter((c) => store.getQty(c.id) > 0).length;
+  const ce = store.getCustomEdition(col.edition);
+  const total = Math.max(cards.length, Number(ce?.expectedTotal) || 0);
+  return { total, owned, pct: total ? Math.round((owned / total) * 100) : 0 };
+}
+// Opciones de edición (todas las presentes), agrupadas por bloque
+function editionSelectOpts() {
+  const fmtOrder = { PE: 0, PB: 1, SB: 2, FX: 3, NE: 4, OT: 5 };
+  const seen = new Map();
+  for (const c of state.cards) if (!seen.has(c.edition)) seen.set(c.edition, c.format);
+  return [...seen.keys()]
+    .sort((a, b) => (fmtOrder[seen.get(a)] ?? 9) - (fmtOrder[seen.get(b)] ?? 9)
+      || (state.editionName[a] || a).localeCompare(state.editionName[b] || b, "es"))
+    .map((slug) => ({ value: slug, label: state.editionName[slug] || slug }));
+}
+
+function renderCollectionsView() {
+  const list = $("#collection-list");
+  const cols = store.getCollections();
+  let activeId = store.getSetting("activeCollectionId");
+  if (!store.getCollection(activeId) && cols.length) {
+    activeId = cols[0].id;
+    store.setSetting("activeCollectionId", activeId);
+  }
+  list.innerHTML = cols.length ? "" : `<p class="muted">Aún no tienes colecciones.</p>`;
+  for (const col of cols) {
+    const s = collectionStats(col);
+    const row = document.createElement("div");
+    row.className = "col-item" + (col.id === activeId ? " active" : "");
+    row.dataset.colId = col.id;
+    row.innerHTML = `
+      <div class="col-top">
+        <span class="d-name">${escapeHtml(col.name)}</span>
+        <button class="qty-btn" data-del title="Eliminar colección">🗑</button>
+      </div>
+      <div class="col-ed muted">${escapeHtml(state.editionName[col.edition] || col.edition)}</div>
+      <span class="ep-bar"><span class="ep-fill" style="width:${s.pct}%"></span></span>
+      <div class="col-nums muted">${s.owned}/${s.total} (${s.pct}%)</div>`;
+    row.querySelector(".d-name").onclick = () => { store.setSetting("activeCollectionId", col.id); renderCollectionsView(); };
+    row.querySelector("[data-del]").onclick = () => {
+      if (!confirm(`¿Eliminar la colección «${col.name}»?\n\n(No borra las cantidades de tu inventario)`)) return;
+      store.deleteCollection(col.id);
+      if (store.getSetting("activeCollectionId") === col.id) store.setSetting("activeCollectionId", null);
+      renderCollectionsView();
+    };
+    list.appendChild(row);
+  }
+  renderCollectionDetail();
+}
+function renderCollectionDetail() {
+  const wrap = $("#collection-detail");
+  const col = store.getCollection(store.getSetting("activeCollectionId"));
+  if (!col) {
+    wrap.innerHTML = `<p class="muted">Crea una colección con <b>+ Nueva colección</b>: eliges una edición y verás todas sus cartas ordenadas por número, marcando tu progreso.</p>`;
+    return;
+  }
+  const s = collectionStats(col);
+  wrap.innerHTML = `
+    <div class="col-head">
+      <h2><input id="col-name-edit" value="${escapeAttr(col.name)}" /></h2>
+      <span class="tag">${escapeHtml(state.editionName[col.edition] || col.edition)}</span>
+      <div class="spacer"></div>
+      <label class="field inline"><span>Mostrar</span>
+        <select id="col-filter">
+          <option value="all">Todas las cartas</option>
+          <option value="missing">Solo las que faltan</option>
+          <option value="owned">Solo las que tengo</option>
+        </select>
+      </label>
+    </div>
+    <div class="col-progress-big">
+      <span class="ep-bar"><span class="ep-fill" id="col-fill" style="width:${s.pct}%"></span></span>
+      <span class="muted" id="col-progress-text">${s.owned}/${s.total} cartas (${s.pct}%)</span>
+    </div>
+    <div id="collection-grid"></div>
+    <div id="col-empty" class="empty hidden">No hay cartas con este filtro.</div>`;
+  $("#col-name-edit").onchange = (e) => { store.renameCollection(col.id, e.target.value.trim() || "Colección"); renderCollectionsView(); };
+  const filterSel = $("#col-filter");
+  filterSel.value = state.colFilter || "all";
+  filterSel.onchange = (e) => { state.colFilter = e.target.value; renderCollectionGrid(col); };
+  renderCollectionGrid(col);
+}
+function renderCollectionGrid(col) {
+  const wrap = $("#collection-grid");
+  if (!wrap) return;
+  let cards = collectionCards(col);
+  const f = state.colFilter || "all";
+  if (f === "missing") cards = cards.filter((c) => store.getQty(c.id) === 0);
+  else if (f === "owned") cards = cards.filter((c) => store.getQty(c.id) > 0);
+  const query = normText($("#search").value.trim());
+  if (query) cards = cards.filter((c) => c.searchText.includes(query));
+  wrap.innerHTML = "";
+  const g = document.createElement("div");
+  g.className = "cards-grid collection-grid";
+  for (const c of cards) g.appendChild(cardEl(c));
+  wrap.appendChild(g);
+  scheduleNameCorrection(cards);
+  $("#col-empty").classList.toggle("hidden", cards.length !== 0);
+}
+function updateCollectionProgress() {
+  if (state.view !== "colecciones") return;
+  const col = store.getCollection(store.getSetting("activeCollectionId"));
+  if (!col) return;
+  const s = collectionStats(col);
+  const fill = $("#col-fill");
+  if (fill) fill.style.width = s.pct + "%";
+  const txt = $("#col-progress-text");
+  if (txt) txt.textContent = `${s.owned}/${s.total} cartas (${s.pct}%)`;
+  const row = document.querySelector(`.col-item[data-col-id="${CSS.escape(col.id)}"]`);
+  if (row) {
+    row.querySelector(".ep-fill").style.width = s.pct + "%";
+    row.querySelector(".col-nums").textContent = `${s.owned}/${s.total} (${s.pct}%)`;
+  }
+}
+function openCollectionModal() {
+  fillSelect("#col-edition", editionSelectOpts());
+  $("#col-name").value = "";
+  $("#collection-modal").classList.remove("hidden");
+}
+function closeCollectionModal() { $("#collection-modal").classList.add("hidden"); }
+function createCollectionFromModal() {
+  const ed = $("#col-edition").value;
+  if (!ed) { showToast("Elige una edición para la colección"); return; }
+  const name = $("#col-name").value.trim() || (state.editionName[ed] || ed);
+  const col = store.createCollection(name, ed);
+  store.setSetting("activeCollectionId", col.id);
+  closeCollectionModal();
+  renderCollectionsView();
+  showToast(`Colección «${name}» creada ✓`);
+}
+function bindCollectionEvents() {
+  $("#new-collection").addEventListener("click", openCollectionModal);
+  $("#col-create").addEventListener("click", createCollectionFromModal);
+  $$("[data-close-col]").forEach((el) => el.addEventListener("click", closeCollectionModal));
+  $("#collection-modal").addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeCollectionModal(); });
+}
+
 /* ===================== Navegación / eventos ===================== */
 function switchView(view) {
   state.view = view;
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + view));
+  if (view === "colecciones") renderCollectionsView();
   if (view === "mazos") renderDecksView();
   if (view === "stats") renderStats();
 }
@@ -1254,7 +1416,8 @@ function bindEvents() {
 
   // Modal
   $("#modal").addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeModal(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closeDeckModal(); closeSyncModal(); closeCardForm(); closeOrphanModal(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closeDeckModal(); closeSyncModal(); closeCardForm(); closeOrphanModal(); closeCollectionModal(); } });
+  bindCollectionEvents();
   $("#orphan-note").addEventListener("click", openOrphanModal);
   $("#orphan-modal").addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeOrphanModal(); });
   $$("[data-close-orphan]").forEach((el) => el.addEventListener("click", closeOrphanModal));

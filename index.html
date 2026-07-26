@@ -22,6 +22,7 @@
     </div>
     <nav class="tabs">
       <button class="tab active" data-view="coleccion">Colección</button>
+      <button class="tab" data-view="colecciones">Colecciones</button>
       <button class="tab" data-view="mazos">Mazos</button>
       <button class="tab" data-view="stats">Estadísticas</button>
     </nav>
@@ -130,6 +131,20 @@
     </section>
 
     <!-- ===== VISTA MAZOS ===== -->
+    <section id="view-colecciones" class="view">
+      <aside class="filters">
+        <div class="filters-head"><h2>Mis colecciones</h2></div>
+        <p class="muted" style="font-size:12px;margin-top:0">Una colección sigue tu avance en una edición completa, carta por carta. Las que aún no tienes se ven en blanco y negro.</p>
+        <button id="new-collection" class="btn full" style="margin:0 0 12px">+ Nueva colección</button>
+        <div id="collection-list" class="deck-list"></div>
+      </aside>
+      <div class="content">
+        <div id="collection-detail" class="collection-detail">
+          <p class="muted">Crea una colección con <b>+ Nueva colección</b>: eliges una edición y verás todas sus cartas ordenadas por número, marcando tu progreso.</p>
+        </div>
+      </div>
+    </section>
+
     <section id="view-mazos" class="view">
       <aside class="filters">
         <div class="filters-head"><h2>Mis mazos</h2></div>
@@ -318,6 +333,22 @@ create policy "acceso_log" on inventario_myl_log
   <div id="orphan-modal" class="modal hidden">
     <div class="modal-backdrop" data-close-orphan></div>
     <div class="modal-box" id="orphan-modal-box"></div>
+  </div>
+
+  <!-- Modal: nueva colección -->
+  <div id="collection-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-col></div>
+    <div class="modal-box">
+      <button class="modal-close" data-close-col>×</button>
+      <h2>Nueva colección</h2>
+      <p class="muted">Elige la edición que quieres coleccionar. Verás todas sus cartas ordenadas por número; las que aún no tienes aparecen en blanco y negro, como bloqueadas.</p>
+      <label class="field"><span>Edición *</span><select id="col-edition"><option value="">— Elige una edición —</option></select></label>
+      <label class="field"><span>Nombre (opcional)</span><input id="col-name" type="text" placeholder="Ej: Completar Hijos de Daana" /></label>
+      <div class="sync-row">
+        <button class="btn primary" id="col-create">Crear colección</button>
+        <button class="btn" data-close-col>Cancelar</button>
+      </div>
+    </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>

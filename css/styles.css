@@ -388,3 +388,38 @@ main { padding: 0; }
   .brand .tagline { display: none; }
   .ep-row { grid-template-columns: 130px 1fr 70px; }
 }
+
+/* ===== Colecciones (álbum por edición) ===== */
+/* Álbum: las cartas que no tienes se ven en blanco y negro y recuperan color
+   (con transición) al obtenerlas. Aplica a la <img> y al .placeholder. */
+.collection-grid .card .card-img img,
+.collection-grid .card .card-img .placeholder { transition: filter 0.45s ease; }
+.collection-grid .card:not(.owned) .card-img img,
+.collection-grid .card:not(.owned) .card-img .placeholder { filter: grayscale(1) brightness(0.5); }
+.collection-grid .card:not(.owned):hover .card-img img,
+.collection-grid .card:not(.owned):hover .card-img .placeholder { filter: grayscale(0.5) brightness(0.75); }
+.collection-grid .card:not(.owned) .card-name { color: var(--muted); }
+.col-section-title {
+  margin: 20px 0 10px; font-size: 15px; color: var(--accent-2);
+  border-bottom: 1px solid var(--border); padding-bottom: 6px;
+}
+.col-section-title:first-child { margin-top: 0; }
+.col-item {
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-3); padding: 10px 11px; font-size: 13px; margin-bottom: 8px;
+}
+.col-item.active { border-color: var(--accent); }
+.col-item .col-top { display: flex; align-items: center; gap: 8px; }
+.col-item .d-name { font-weight: 600; cursor: pointer; flex: 1; }
+.col-item .col-ed { font-size: 11px; margin: 2px 0 6px; }
+.col-item .ep-bar { display: block; height: 8px; }
+.col-item .col-nums { font-size: 11px; margin-top: 4px; }
+.col-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.col-head h2 { margin: 0; }
+.col-head h2 input {
+  background: var(--bg-3); border: 1px solid var(--border); color: var(--text);
+  border-radius: 8px; padding: 6px 10px; font-size: 18px; font-weight: 700;
+}
+.col-head .spacer { flex: 1; }
+.col-progress-big { display: flex; align-items: center; gap: 12px; margin: 14px 0 18px; }
+.col-progress-big .ep-bar { flex: 1; height: 16px; }

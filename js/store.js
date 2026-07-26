@@ -8,6 +8,8 @@ const KEYS = {
   settings: "myl.settings.v1",
   meta: "myl.meta.v1",
   custom: "myl.customcards.v1",
+  collections: "myl.collections.v1",
+  editions: "myl.editions.v1",
 };
 
 function read(key, fallback) {
@@ -136,7 +138,9 @@ export function migrateKeys(map) {
 let customCards = read(KEYS.custom, []);
 export function getCustomCards() { return customCards.slice(); }
 export function addCustomCard(card) {
-  const id = card.id || "user__" + Date.now().toString(36);
+  // Sufijo aleatorio: Date.now() solo no basta al agregar varias cartas en el
+  // mismo milisegundo (p. ej. importación CSV) y los ids chocarían.
+  const id = card.id || "user__" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
   const c = { ...card, id, custom: true, userCustom: true };
   customCards.push(c);
   write(KEYS.custom, customCards);
@@ -156,15 +160,96 @@ export function deleteCustomCard(id) {
   notify();
 }
 
+/* ===== Colecciones (una edición que se quiere completar) =====
+   Una colección NO guarda cantidades: es una vista de una edición sobre el
+   inventario. Borrarla nunca borra cantidades. */
+let collections = read(KEYS.collections, []);
+export function getCollections() { return collections; }
+export function getCollection(id) { return collections.find((c) => c.id === id) || null; }
+export function createCollection(name, edition) {
+  const col = { id: "c" + Date.now().toString(36), name: name || "Colección", edition, updatedAt: Date.now() };
+  collections.push(col);
+  write(KEYS.collections, collections);
+  notify();
+  return col;
+}
+export function renameCollection(id, name) {
+  const c = getCollection(id);
+  if (c) { c.name = name; c.updatedAt = Date.now(); write(KEYS.collections, collections); notify(); }
+}
+export function deleteCollection(id) {
+  collections = collections.filter((c) => c.id !== id);
+  write(KEYS.collections, collections);
+  notify();
+}
+export function replaceCollections(arr, origin = "local") {
+  if (Array.isArray(arr)) { collections = arr; write(KEYS.collections, collections); notify(origin); }
+}
+
+/* ===== Ediciones personalizadas del usuario =====
+   [{ slug, name, description, format, expectedTotal, updatedAt }]
+   El slug es la identidad (las cartas manuales se ligan por su campo edition);
+   renombrar cambia solo el nombre visible y NO el slug. */
+let customEditions = read(KEYS.editions, []);
+export function getCustomEditions() { return customEditions.slice(); }
+export function getCustomEdition(slug) { return customEditions.find((e) => e.slug === slug) || null; }
+export function createCustomEdition(ed) {
+  const e = {
+    slug: ed.slug,
+    name: ed.name || ed.slug,
+    description: ed.description || "",
+    format: ed.format || "OT",
+    expectedTotal: ed.expectedTotal ?? null,
+    updatedAt: Date.now(),
+  };
+  customEditions.push(e);
+  write(KEYS.editions, customEditions);
+  notify();
+  return e;
+}
+export function updateCustomEdition(slug, patch) {
+  const i = customEditions.findIndex((e) => e.slug === slug);
+  if (i === -1) return;
+  customEditions[i] = { ...customEditions[i], ...patch, slug, updatedAt: Date.now() };
+  write(KEYS.editions, customEditions);
+  notify();
+}
+export function deleteCustomEdition(slug) {
+  customEditions = customEditions.filter((e) => e.slug !== slug);
+  write(KEYS.editions, customEditions);
+  notify();
+}
+export function replaceCustomEditions(arr, origin = "local") {
+  if (Array.isArray(arr)) { customEditions = arr; write(KEYS.editions, customEditions); notify(origin); }
+}
+// Renombrar en bloque el nombre visible de la edición en todas sus cartas manuales.
+export function renameEditionOnCards(slug, newName) {
+  let changed = false;
+  for (const c of customCards) {
+    if (c.edition === slug && c.editionName !== newName) { c.editionName = newName; changed = true; }
+  }
+  if (changed) { write(KEYS.custom, customCards); notify(); }
+  return changed;
+}
+
 /* ===== Snapshot completo (para respaldo / nube) ===== */
 export function getSnapshot() {
-  return { inventory: getInventory(), decks: JSON.parse(JSON.stringify(decks)), customCards: getCustomCards(), updatedAt: getUpdatedAt() };
+  return {
+    inventory: getInventory(),
+    decks: JSON.parse(JSON.stringify(decks)),
+    collections: JSON.parse(JSON.stringify(collections)),
+    editions: getCustomEditions(),
+    customCards: getCustomCards(),
+    updatedAt: getUpdatedAt(),
+  };
 }
 // Aplica un snapshot completo SIN marcarlo como cambio local (origin 'remote').
 export function applySnapshot(snap) {
   if (!snap) return;
   replaceInventory(snap.inventory || {}, "remote");
   if (Array.isArray(snap.decks)) { decks = snap.decks; write(KEYS.decks, decks); }
+  if (Array.isArray(snap.collections)) { collections = snap.collections; write(KEYS.collections, collections); }
+  if (Array.isArray(snap.editions)) { customEditions = snap.editions; write(KEYS.editions, customEditions); }
   if (Array.isArray(snap.customCards)) { customCards = snap.customCards; write(KEYS.custom, customCards); }
   if (snap.updatedAt) setUpdatedAt(snap.updatedAt);
   notify("remote");
