@@ -135,7 +135,8 @@
       <aside class="filters">
         <div class="filters-head"><h2>Mis colecciones</h2></div>
         <p class="muted" style="font-size:12px;margin-top:0">Una colección sigue tu avance en una edición completa, carta por carta. Las que aún no tienes se ven en blanco y negro.</p>
-        <button id="new-collection" class="btn full" style="margin:0 0 12px">+ Nueva colección</button>
+        <button id="new-collection" class="btn full" style="margin:0 0 8px">+ Nueva colección</button>
+        <button id="open-editions" class="btn full" style="margin:0 0 12px">🗂 Ediciones personalizadas</button>
         <div id="collection-list" class="deck-list"></div>
       </aside>
       <div class="content">
@@ -349,6 +350,12 @@ create policy "acceso_log" on inventario_myl_log
         <button class="btn" data-close-col>Cancelar</button>
       </div>
     </div>
+  </div>
+
+  <!-- Modal: ediciones personalizadas + import CSV -->
+  <div id="editions-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-ed></div>
+    <div class="modal-box wide" id="editions-modal-box"></div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
