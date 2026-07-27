@@ -456,3 +456,18 @@ main { padding: 0; }
   padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-3); font-size: 13px;
 }
 @media (max-width: 640px) { .trade-log .tlog-row { grid-template-columns: 1fr; gap: 2px; } }
+
+/* ===== Barra de pestañas en móvil: no cortar; deslizable ===== */
+@media (max-width: 720px) {
+  .topbar { gap: 10px 12px; }
+  .tabs {
+    width: 100%;
+    flex: 1 0 100%;              /* ocupa su propia fila completa */
+    flex-wrap: nowrap;
+    overflow-x: auto;            /* si no caben, se deslizan (no se cortan) */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: 0 0 auto; white-space: nowrap; padding: 8px 12px; font-size: 13px; }
+}
