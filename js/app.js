@@ -3,6 +3,7 @@ import { exportExcel, exportPDF, exportDeckExcel, exportDeckImage, deckSummary }
 import { renderCharts } from "./charts.js";
 import * as cloud from "./cloud.js";
 import { typeIcon, raceIcon, NO_STRENGTH_TYPES } from "./icons.js";
+import { importEditionFromWiki } from "./wiki-import.js";
 
 /* ===================== Estado global ===================== */
 const state = {
@@ -1248,15 +1249,29 @@ function collectionStats(col) {
   const total = Math.max(cards.length, Number(ce?.expectedTotal) || 0);
   return { total, owned, pct: total ? Math.round((owned / total) * 100) : 0 };
 }
-// Opciones de edición (todas las presentes), agrupadas por bloque
-function editionSelectOpts() {
+// Llena un <select> de ediciones DIVIDIDO por bloque/tipo de juego (optgroups):
+// Primera Era, Primer Bloque, Segundo Bloque, Furia Extendido, Nueva Era/Imperio, Otras.
+function fillEditionSelectGrouped(selId, placeholder = "— Elige una edición —") {
+  const el = $(selId);
+  const fmtNames = { PE: "Primera Era", PB: "Primer Bloque", SB: "Segundo Bloque", FX: "Furia Extendido", NE: "Nueva Era / Imperio", OT: "Otras / personalizadas" };
   const fmtOrder = { PE: 0, PB: 1, SB: 2, FX: 3, NE: 4, OT: 5 };
+  const byFmt = {};
   const seen = new Map();
-  for (const c of state.cards) if (!seen.has(c.edition)) seen.set(c.edition, c.format);
-  return [...seen.keys()]
-    .sort((a, b) => (fmtOrder[seen.get(a)] ?? 9) - (fmtOrder[seen.get(b)] ?? 9)
-      || (state.editionName[a] || a).localeCompare(state.editionName[b] || b, "es"))
-    .map((slug) => ({ value: slug, label: state.editionName[slug] || slug }));
+  for (const c of state.cards) if (!seen.has(c.edition)) seen.set(c.edition, c.format || "OT");
+  for (const [slug, fmt] of seen) (byFmt[fmt] ||= []).push(slug);
+  el.innerHTML = `<option value="">${placeholder}</option>`;
+  Object.keys(byFmt).sort((a, b) => (fmtOrder[a] ?? 9) - (fmtOrder[b] ?? 9)).forEach((fmt) => {
+    const og = document.createElement("optgroup");
+    og.label = fmtNames[fmt] || fmt;
+    byFmt[fmt]
+      .sort((a, b) => (state.editionName[a] || a).localeCompare(state.editionName[b] || b, "es"))
+      .forEach((slug) => {
+        const o = document.createElement("option");
+        o.value = slug; o.textContent = state.editionName[slug] || slug;
+        og.appendChild(o);
+      });
+    el.appendChild(og);
+  });
 }
 
 function renderCollectionsView() {
@@ -1358,7 +1373,7 @@ function updateCollectionProgress() {
   }
 }
 function openCollectionModal() {
-  fillSelect("#col-edition", editionSelectOpts());
+  fillEditionSelectGrouped("#col-edition");
   $("#col-name").value = "";
   $("#collection-modal").classList.remove("hidden");
 }
@@ -1459,6 +1474,16 @@ function renderEditionsModal() {
     </div>
     <h3 class="sync-h3">Cartas de la edición (${cards.length}${ed.expectedTotal ? " de " + ed.expectedTotal : ""})</h3>
     <div class="ed-cards">${cards.map(cardRow).join("") || `<p class="muted">Aún no tiene cartas. Agrégalas a mano o importa el listado desde un CSV.</p>`}</div>
+    <h3 class="sync-h3">Cargar cartas desde myl.fandom.com</h3>
+    <p class="muted">Trae automáticamente el listado numerado directo desde el wiki (y sus promocionales, si indicas la página). Completa las cartas que encuentra con certeza; las dudosas quedan listadas para editarlas a mano. Si tu navegador bloquea la conexión, usa el CSV de más abajo.</p>
+    <div class="cf-grid">
+      <label class="field"><span>Nombre de la edición en el wiki</span><input id="wi-name" type="text" value="${escapeAttr(ed.name)}" placeholder="Ej: Cofradía" /></label>
+      <label class="field"><span>Página de promocionales (opcional)</span><input id="wi-promo" type="text" placeholder="Ej: Lista de cartas Promo …" /></label>
+    </div>
+    <div class="sync-row"><button class="btn primary" id="wi-load">Buscar y cargar cartas</button></div>
+    <div id="wi-status" class="muted" style="margin-top:8px"></div>
+    <div id="wi-report" class="csv-report"></div>
+
     <h3 class="sync-h3">Importar listado desde CSV (UTF-8)</h3>
     <p class="muted">Columnas: <b>${CSV_HEADERS.join(", ")}</b>. Usa <b>numero</b> para las cartas normales o <b>especial</b> (ej: Promo, P-001) para las promocionales. La imagen debe ser un enlace https://…. Reimportar el mismo archivo <b>actualiza</b> las cartas en vez de duplicarlas.</p>
     <div class="sync-row">
@@ -1487,6 +1512,7 @@ function renderEditionsModal() {
     $("#cf-edition").value = ed.name;
     $("#cf-format").value = ed.format === "OT" ? "NE" : ed.format;
   };
+  $("#wi-load").onclick = () => loadEditionFromWiki(ed);
   box.querySelectorAll(".ed-card-row").forEach((row) => {
     const card = cardById(row.dataset.id);
     row.querySelector("[data-ec-edit]").onclick = () => { if (card) { closeEditionsModal(); openCardForm(card); } };
@@ -1621,6 +1647,68 @@ function importCSVCards() {
   if (state.view === "colecciones") renderCollectionsView();
   renderEditionsModal();
   showToast(`Importación lista: ${created} nueva(s), ${updated} actualizada(s)`, 4500);
+}
+
+// Crea o actualiza cartas de una edición, emparejando por número, identificador
+// especial, o nombre. La usan el import CSV y la carga desde el wiki.
+function mergeEditionCards(ed, cards, matchKeyOf) {
+  const existing = store.getCustomCards().filter((c) => c.edition === ed.slug);
+  let created = 0, updated = 0;
+  for (const card of cards) {
+    const key = matchKeyOf(card);
+    const match = existing.find((c) =>
+      key.esp ? normText(c.specialId || "") === normText(key.esp)
+        : key.num != null ? parseInt(c.edid, 10) === key.num
+        : normText(c.name) === normText(card.name)
+    );
+    if (match) { store.updateCustomCard(match.id, card); updated++; }
+    else { store.addCustomCard(card); created++; }
+  }
+  return { created, updated };
+}
+
+// Trae el listado de una edición desde myl.fandom.com (API MediaWiki con CORS,
+// ver js/wiki-import.js) y lo fusiona en la edición actual. Lo que no se pueda
+// identificar con certeza llega con datos mínimos y se lista aparte.
+async function loadEditionFromWiki(ed) {
+  const wikiName = $("#wi-name").value.trim();
+  if (!wikiName) { showToast("Escribe el nombre de la edición en el wiki"); return; }
+  const promoPage = $("#wi-promo").value.trim() || null;
+  const btn = $("#wi-load");
+  const statusEl = $("#wi-status");
+  $("#wi-report").innerHTML = "";
+  btn.disabled = true;
+  statusEl.textContent = "Conectando con myl.fandom.com…";
+  try {
+    const { cards, report } = await importEditionFromWiki({
+      wikiEditionName: wikiName,
+      editionSlug: ed.slug,
+      editionDisplayName: ed.name,
+      format: ed.format === "OT" ? "NE" : ed.format,
+      promoPage,
+      onProgress: (msg) => { statusEl.textContent = msg; },
+    });
+    const { created, updated } = mergeEditionCards(
+      ed, cards, (card) => ({ num: card.edid ? parseInt(card.edid, 10) : null, esp: card.specialId })
+    );
+    rebuildCards(); populateFilters(); applyFilters();
+    if (state.view === "colecciones") renderCollectionsView();
+    // renderEditionsModal reconstruye el DOM: hay que volver a pedir referencias.
+    renderEditionsModal();
+    const gaps = report.sinResolver.length;
+    $("#wi-status").textContent = `Listo: ${created} carta(s) nueva(s), ${updated} actualizada(s).`;
+    $("#wi-report").innerHTML = gaps
+      ? `<p>${gaps} carta(s) no se identificaron con certeza y quedaron con datos mínimos:</p>` +
+        report.sinResolver.slice(0, 30).map((e) => `<div class="err">✗ ${escapeHtml(e.nombre)}</div>`).join("") +
+        (gaps > 30 ? `<div class="err">… y ${gaps - 30} más</div>` : "") +
+        `<p class="muted">Edítalas a mano arriba o vuelve a intentar con la página exacta.</p>`
+      : `<p>Todas las cartas se identificaron con certeza ✓</p>`;
+    showToast(`Cargado desde el wiki: ${created + updated} carta(s)`, 4500);
+  } catch (e) {
+    statusEl.textContent = "";
+    $("#wi-report").innerHTML = `<p class="err">✗ ${escapeHtml(e.message)}</p><p class="muted">Si tu navegador bloquea la conexión, usa el import por CSV de abajo.</p>`;
+    btn.disabled = false;
+  }
 }
 
 function bindEditionsEvents() {
