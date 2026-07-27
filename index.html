@@ -23,6 +23,7 @@
     <nav class="tabs">
       <button class="tab active" data-view="coleccion">Colección</button>
       <button class="tab" data-view="colecciones">Colecciones</button>
+      <button class="tab" data-view="cambios">Cambios</button>
       <button class="tab" data-view="mazos">Mazos</button>
       <button class="tab" data-view="stats">Estadísticas</button>
     </nav>
@@ -143,6 +144,25 @@
         <div id="collection-detail" class="collection-detail">
           <p class="muted">Crea una colección con <b>+ Nueva colección</b>: eliges una edición y verás todas sus cartas ordenadas por número, marcando tu progreso.</p>
         </div>
+      </div>
+    </section>
+
+    <section id="view-cambios" class="view">
+      <aside class="filters">
+        <div class="filters-head"><h2>Cartas para cambio</h2></div>
+        <p class="muted" style="font-size:12px;margin-top:0">Marca copias repetidas como disponibles para cambiar con otros jugadores. Al registrar un intercambio se descuenta la carta entregada, se suma la recibida y esta entra automáticamente a la colección de su edición (si no existe, se crea sola).</p>
+        <div id="trade-summary" class="muted"></div>
+      </aside>
+      <div class="content">
+        <h3 class="trade-h3" style="margin-top:0">Ofrecer una carta</h3>
+        <div class="deck-add-search" style="margin:6px 0 0">
+          <input id="trade-search" type="search" placeholder="Busca una carta que tengas, para ofrecerla en cambio…" autocomplete="off" />
+          <div id="trade-search-results" class="deck-search-results"></div>
+        </div>
+        <h3 class="trade-h3">Ofrecidas para cambio</h3>
+        <div id="trade-list" class="trade-list"></div>
+        <h3 class="trade-h3">Historial de intercambios</h3>
+        <div id="trade-log" class="trade-log"></div>
       </div>
     </section>
 
@@ -356,6 +376,20 @@ create policy "acceso_log" on inventario_myl_log
   <div id="editions-modal" class="modal hidden">
     <div class="modal-backdrop" data-close-ed></div>
     <div class="modal-box wide" id="editions-modal-box"></div>
+  </div>
+
+  <!-- Modal: registrar intercambio -->
+  <div id="trade-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-trade></div>
+    <div class="modal-box">
+      <button class="modal-close" data-close-trade>×</button>
+      <h2>Registrar intercambio</h2>
+      <p class="muted">Entregas <b id="tm-given"></b>. Busca la carta que recibiste a cambio: se sumará a tu inventario y a la colección de su edición (si no existe, se crea automáticamente).</p>
+      <div class="deck-add-search">
+        <input id="tm-search" type="search" placeholder="Carta recibida…" autocomplete="off" />
+        <div id="tm-results" class="deck-search-results"></div>
+      </div>
+    </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>

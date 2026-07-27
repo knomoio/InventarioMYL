@@ -1035,6 +1035,7 @@ function refreshAll() {
   rebuildCards();
   applyFilters();
   if (state.view === "colecciones") renderCollectionsView();
+  if (state.view === "cambios") renderTradeView();
   if (state.view === "mazos") renderDecksView();
   if (state.view === "stats") renderStats();
   refreshActiveDeckUI();
@@ -1717,12 +1718,139 @@ function bindEditionsEvents() {
   $("#editions-modal").addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeEditionsModal(); });
 }
 
+/* ===================== Cambios (inventario de intercambio) =====================
+   Marca copias repetidas como disponibles para cambio. Al registrar un
+   intercambio: −1 la entregada, +1 la recibida, la recibida entra a la colección
+   de su edición (si no existe, se crea sola) y queda en el historial. */
+function cardNum(c) { return parseInt(c.edid, 10); }
+
+function renderTradeView() { renderTradeList(); renderTradeLog(); }
+function renderTradeList() {
+  const wrap = $("#trade-list");
+  const entries = Object.entries(store.getTradeList());
+  const copies = entries.reduce((a, [, n]) => a + n, 0);
+  $("#trade-summary").textContent = entries.length
+    ? `${entries.length} carta(s) distinta(s) · ${copies} copia(s) ofrecida(s)`
+    : "Aún no marcas cartas para cambio.";
+  if (!entries.length) {
+    wrap.innerHTML = `<p class="muted">Busca arriba una carta que tengas repetida y ofrécela.</p>`;
+    return;
+  }
+  wrap.innerHTML = entries.map(([id, n]) => {
+    const c = cardById(id);
+    const name = c ? escapeHtml(displayName(c)) : `<span class="mono">${escapeHtml(id)}</span>`;
+    const meta = c
+      ? `${escapeHtml(c.editionName || "")}${Number.isFinite(cardNum(c)) ? " · #" + cardNum(c) : ""} · tienes ${store.getQty(id)}`
+      : "fuera de catálogo";
+    return `<div class="trade-row" data-id="${escapeAttr(id)}">
+      <div class="tr-info"><span class="tr-name">${name}</span><span class="tr-meta">${meta}</span></div>
+      <div class="tr-qty"><button class="qty-btn" data-tr="minus">−</button><span>${n}</span><button class="qty-btn" data-tr="plus">+</button></div>
+      <button class="btn small" data-exchange ${c ? "" : "disabled"}>Intercambiar</button>
+    </div>`;
+  }).join("");
+  wrap.querySelectorAll(".trade-row").forEach((row) => {
+    const id = row.dataset.id;
+    row.querySelectorAll("[data-tr]").forEach((b) => {
+      b.onclick = () => { store.addTradeQty(id, b.dataset.tr === "plus" ? 1 : -1); renderTradeList(); };
+    });
+    row.querySelector("[data-exchange]").onclick = () => { const c = cardById(id); if (c) openTradeModal(c); };
+  });
+}
+function renderTradeLog() {
+  const wrap = $("#trade-log");
+  const log = store.getTradeLog();
+  if (!log.length) { wrap.innerHTML = `<p class="muted">Todavía no registras intercambios.</p>`; return; }
+  wrap.innerHTML = log.map((e) => {
+    const g = cardById(e.given), r = cardById(e.received);
+    return `<div class="tlog-row">
+      <span class="muted">${new Date(e.date).toLocaleString("es-CL")}</span>
+      <span>Entregada: <b>${escapeHtml(g ? displayName(g) : e.given)}</b></span>
+      <span>Recibida: <b>${escapeHtml(r ? displayName(r) : e.received)}</b></span>
+    </div>`;
+  }).join("");
+}
+function renderTradeSearchResults() {
+  const q = normText($("#trade-search").value.trim());
+  const res = $("#trade-search-results");
+  if (q.length < 2) { res.innerHTML = ""; return; }
+  const matches = state.cards.filter((c) => store.getQty(c.id) > 0 && c.searchText.includes(q)).slice(0, 30);
+  res.innerHTML = matches.map((c) => `
+    <div class="dsr" data-id="${escapeAttr(c.id)}">
+      <span class="dsr-name">${escapeHtml(displayName(c))}</span>
+      <span class="dsr-meta">${escapeHtml(c.editionName || "")} · tienes ${store.getQty(c.id)} · en cambio ${store.getTradeQty(c.id)}</span>
+      <button class="btn small" data-offer>Ofrecer copia</button>
+    </div>`).join("") || `<p class="muted">Sin resultados (solo cartas con copias en tu inventario).</p>`;
+  res.querySelectorAll(".dsr").forEach((row) => {
+    row.querySelector("[data-offer]").onclick = () => {
+      const before = store.getTradeQty(row.dataset.id);
+      const after = store.addTradeQty(row.dataset.id, 1);
+      if (after === before) showToast("Ya ofreces todas las copias que tienes de esa carta", 3000);
+      renderTradeList();
+      renderTradeSearchResults();
+    };
+  });
+}
+let tradeGivenCard = null;
+function openTradeModal(card) {
+  tradeGivenCard = card;
+  $("#tm-given").textContent = `«${displayName(card)}» (${card.editionName || "—"})`;
+  $("#tm-search").value = "";
+  $("#tm-results").innerHTML = "";
+  $("#trade-modal").classList.remove("hidden");
+  $("#tm-search").focus();
+}
+function closeTradeModal() { $("#trade-modal").classList.add("hidden"); tradeGivenCard = null; }
+function renderTradeModalResults() {
+  const q = normText($("#tm-search").value.trim());
+  const res = $("#tm-results");
+  if (q.length < 2) { res.innerHTML = ""; return; }
+  const matches = state.cards.filter((c) => c.searchText.includes(q)).slice(0, 30);
+  res.innerHTML = matches.map((c) => `
+    <div class="dsr" data-id="${escapeAttr(c.id)}">
+      <span class="dsr-name">${escapeHtml(displayName(c))}</span>
+      <span class="dsr-meta">${escapeHtml(c.editionName || "")}${Number.isFinite(cardNum(c)) ? " · #" + cardNum(c) : ""}</span>
+      <button class="btn small" data-receive>Esta recibí</button>
+    </div>`).join("") || `<p class="muted">Sin resultados.</p>`;
+  res.querySelectorAll(".dsr").forEach((row) => {
+    row.querySelector("[data-receive]").onclick = () => {
+      const received = cardById(row.dataset.id);
+      if (received && tradeGivenCard) executeTrade(tradeGivenCard, received);
+    };
+  });
+}
+function executeTrade(given, received) {
+  if (store.getQty(given.id) < 1) { showToast("Ya no tienes copias de la carta entregada", 3000); return; }
+  if (!confirm(`¿Registrar este intercambio?\n\nEntregas: ${displayName(given)}\nRecibes: ${displayName(received)}`)) return;
+  store.addQty(given.id, -1);
+  store.addTradeQty(given.id, -1);
+  store.addQty(received.id, +1);
+  let col = store.getCollections().find((c) => c.edition === received.edition);
+  let created = false;
+  if (!col) {
+    const name = state.editionName[received.edition] || received.editionName || received.edition || "Colección";
+    col = store.createCollection(name, received.edition);
+    created = true;
+  }
+  store.addTradeLogEntry({ given: given.id, received: received.id });
+  closeTradeModal();
+  renderTradeView();
+  applyFilters();
+  showToast(`Cambio registrado: −«${displayName(given)}» +«${displayName(received)}», sumada a «${col.name}»${created ? " (creada)" : ""}.`, 5500);
+}
+function bindTradeEvents() {
+  $("#trade-search").addEventListener("input", debounce(renderTradeSearchResults, 180));
+  $("#tm-search").addEventListener("input", debounce(renderTradeModalResults, 180));
+  $$("[data-close-trade]").forEach((el) => el.addEventListener("click", closeTradeModal));
+  $("#trade-modal").addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeTradeModal(); });
+}
+
 /* ===================== Navegación / eventos ===================== */
 function switchView(view) {
   state.view = view;
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
   $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + view));
   if (view === "colecciones") renderCollectionsView();
+  if (view === "cambios") renderTradeView();
   if (view === "mazos") renderDecksView();
   if (view === "stats") renderStats();
 }
@@ -1756,9 +1884,10 @@ function bindEvents() {
 
   // Modal
   $("#modal").addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeModal(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closeDeckModal(); closeSyncModal(); closeCardForm(); closeOrphanModal(); closeCollectionModal(); closeEditionsModal(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closeDeckModal(); closeSyncModal(); closeCardForm(); closeOrphanModal(); closeCollectionModal(); closeEditionsModal(); closeTradeModal(); } });
   bindCollectionEvents();
   bindEditionsEvents();
+  bindTradeEvents();
   $("#orphan-note").addEventListener("click", openOrphanModal);
   $("#orphan-modal").addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeOrphanModal(); });
   $$("[data-close-orphan]").forEach((el) => el.addEventListener("click", closeOrphanModal));

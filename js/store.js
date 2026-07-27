@@ -10,6 +10,8 @@ const KEYS = {
   custom: "myl.customcards.v1",
   collections: "myl.collections.v1",
   editions: "myl.editions.v1",
+  trade: "myl.trade.v1",
+  tradeLog: "myl.tradelog.v1",
 };
 
 function read(key, fallback) {
@@ -160,6 +162,42 @@ export function deleteCustomCard(id) {
   notify();
 }
 
+/* ===== Cartas para cambio (inventario de intercambio) =====
+   trade: { cardId: copias ofrecidas } — nunca más que las copias que tienes.
+   tradeLog: historial [{ given, received, date }], del más reciente al más antiguo. */
+let trade = read(KEYS.trade, {});
+let tradeLog = read(KEYS.tradeLog, []);
+export function getTradeQty(id) { return trade[id] || 0; }
+export function setTradeQty(id, n) {
+  n = Math.max(0, Math.floor(n || 0));
+  const owned = getQty(id);
+  if (n > owned) n = owned; // tope: lo que realmente tienes
+  if (n === 0) delete trade[id];
+  else trade[id] = n;
+  write(KEYS.trade, trade);
+  notify();
+}
+export function addTradeQty(id, delta) { setTradeQty(id, getTradeQty(id) + delta); return getTradeQty(id); }
+export function getTradeList() { return { ...trade }; }
+export function replaceTrade(obj, origin = "local") {
+  trade = {};
+  for (const [id, n] of Object.entries(obj || {})) {
+    const v = Math.max(0, Math.floor(Number(n) || 0));
+    if (v > 0) trade[id] = v;
+  }
+  write(KEYS.trade, trade);
+  notify(origin);
+}
+export function getTradeLog() { return tradeLog.slice(); }
+export function addTradeLogEntry(entry) {
+  tradeLog.unshift({ given: entry.given, received: entry.received, date: entry.date || Date.now() });
+  write(KEYS.tradeLog, tradeLog);
+  notify();
+}
+export function replaceTradeLog(arr, origin = "local") {
+  if (Array.isArray(arr)) { tradeLog = arr; write(KEYS.tradeLog, tradeLog); notify(origin); }
+}
+
 /* ===== Colecciones (una edición que se quiere completar) =====
    Una colección NO guarda cantidades: es una vista de una edición sobre el
    inventario. Borrarla nunca borra cantidades. */
@@ -239,6 +277,8 @@ export function getSnapshot() {
     decks: JSON.parse(JSON.stringify(decks)),
     collections: JSON.parse(JSON.stringify(collections)),
     editions: getCustomEditions(),
+    trade: getTradeList(),
+    tradeLog: tradeLog.slice(),
     customCards: getCustomCards(),
     updatedAt: getUpdatedAt(),
   };
@@ -250,6 +290,8 @@ export function applySnapshot(snap) {
   if (Array.isArray(snap.decks)) { decks = snap.decks; write(KEYS.decks, decks); }
   if (Array.isArray(snap.collections)) { collections = snap.collections; write(KEYS.collections, collections); }
   if (Array.isArray(snap.editions)) { customEditions = snap.editions; write(KEYS.editions, customEditions); }
+  if (snap.trade && typeof snap.trade === "object") { trade = { ...snap.trade }; write(KEYS.trade, trade); }
+  if (Array.isArray(snap.tradeLog)) { tradeLog = snap.tradeLog; write(KEYS.tradeLog, tradeLog); }
   if (Array.isArray(snap.customCards)) { customCards = snap.customCards; write(KEYS.custom, customCards); }
   if (snap.updatedAt) setUpdatedAt(snap.updatedAt);
   notify("remote");
